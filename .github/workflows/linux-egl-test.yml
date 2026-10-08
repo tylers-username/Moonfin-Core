@@ -55,20 +55,23 @@ jobs:
         run: |
           bash scripts/build-linux-egl-test.sh
 
-      - name: Package relocatable Linux bundle
+      - name: Bundle Moonfin runtime libraries (libmpv, etc.)
         run: |
           set -euo pipefail
-          bundle="build/linux/x64/release/bundle"
-          test -x "$bundle/moonfin"
-          echo "=== Dynamic library dependency check ==="
-          ldd "$bundle/moonfin" || true
-          tar -czf Moonfin-2.6.0-linux-egl-test-x86_64.tar.gz -C "$bundle" .
-          ls -lh Moonfin-2.6.0-linux-egl-test-x86_64.tar.gz
+          # Reuse the repository's tested Linux tarball packager. Never call
+          # build-linux.sh directly here: that would rebuild without the patch.
+          source ./build-linux.sh
+          BUILD_DIR="$(resolve_build_dir)"
+          build_tarball
+          test -f "$GITHUB_WORKSPACE/Moonfin_Linux_v2.6.0.tar.gz"
+          tar -tzf "$GITHUB_WORKSPACE/Moonfin_Linux_v2.6.0.tar.gz" | grep -E 'libmpv[.]so[.]2|moonfin-bin' | head -10
+          ls -lh "$GITHUB_WORKSPACE/Moonfin_Linux_v2.6.0.tar.gz"
           {
             echo "## Experimental Moonfin Linux EGL build"
             echo
-            echo "The Linux bundle is attached to this run as **moonfin-2.6-egl-linux-x86_64**."
-            echo "Download and extract it on the Xubuntu game center, keeping the existing AppImage untouched."
+            echo "The packaged Linux tarball is attached as **moonfin-2.6-egl-linux-x86_64**."
+            echo "It includes bundled libmpv and a wrapper that configures LD_LIBRARY_PATH."
+            echo "Download, extract the ZIP then tarball, and run the moonfin wrapper."
             echo "This build is **experimental and not runtime-verified** (media-kit issue #1404)."
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -76,6 +79,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: moonfin-2.6-egl-linux-x86_64
-          path: Moonfin-2.6.0-linux-egl-test-x86_64.tar.gz
+          path: Moonfin_Linux_v2.6.0.tar.gz
           if-no-files-found: error
           retention-days: 14
