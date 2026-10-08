@@ -63,3 +63,11 @@ Alternatively start from the checkout branch. The build script compiles a native
 ### Rollback
 
 Close patched Moonfin and launch the existing `~/Applications/Moonfin.AppImage`. The script restores the cached dependency source on exit. If interrupted with SIGKILL/power loss, run `flutter pub cache repair` or re-fetch the pinned dependency before rebuilding.
+
+## CI artifact packaging regression and correction (2026-10-08)
+
+- First GitHub Actions run [37793924138](https://github.com/tylers-username/Moonfin-Core/actions/runs/37793924138) successfully **compiled** the patch but uploaded the raw Flutter bundle. It omitted `libmpv.so.2`; launch on Xubuntu failed before EGL initialization: `./moonfin: error while loading shared libraries: libmpv.so.2: cannot open shared object file`.
+- The error **does not validate or invalidate the EGL patch**. It is a separate packaging omission.
+- Corrective change: after running the reversible patched build, reuse the project's existing `build_tarball` packager on the **already-built** Flutter output. This bundles libmpv, supporting runtime libraries and the `moonfin` launcher with `LD_LIBRARY_PATH`. Critically, this must **not** run a second unpatched Flutter build.
+- The remote artifact ZIP contains `Moonfin_Linux_v2.6.0.tar.gz`; this tarball contains a top-level `moonfin-2.6.0/` directory with the launcher `moonfin` and the executable `moonfin-bin`. Extract this updated artifact to a **new** directory for comparison; keep the AppImage and the previous extracted test directory as-is until verification.
+- New workflow run: [37797098322](https://github.com/tylers-username/Moonfin-Core/actions/runs/37797098322). Its completion status and the runtime result must be verified independently; compilation success alone is insufficient.
