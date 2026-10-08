@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           source ./build-linux.sh
           BUILD_DIR="$(resolve_build_dir)"
+          # libdartjni.so is a Java-only Dart native asset. On Linux it would
+          # force shipping a complete JVM despite no desktop Java integration.
+          # Keep the test bundle restricted to Linux video playback components.
+          test -f "$BUILD_DIR/lib/libdartjni.so"
+          rm "$BUILD_DIR/lib/libdartjni.so"
           # The tarball builder continues after its internal dependency
           # verification failure. Gate the dependency check independently.
           if ! inject_linux_runtime_libs "$BUILD_DIR"; then
