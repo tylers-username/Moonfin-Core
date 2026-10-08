@@ -49,6 +49,7 @@ add_subdirectory(${FLUTTER_MANAGED_DIR})
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
 
 # Shared libretro host and its desktop audio sink, linked into the runner.
 set(LIBRETRO_HOST_AUDIO ON CACHE BOOL "" FORCE)
