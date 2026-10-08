@@ -1,0 +1,109 @@
+diff --git a/linux/video_output.cc b/linux/video_output.cc
+--- a/linux/video_output.cc
++++ b/linux/video_output.cc
+@@ -164,8 +164,41 @@
+     EGLSurface flutter_draw_surface = eglGetCurrentSurface(EGL_DRAW);
+     EGLSurface flutter_read_surface = eglGetCurrentSurface(EGL_READ);
+     
+-    if (flutter_display != EGL_NO_DISPLAY && flutter_context != EGL_NO_CONTEXT) {
+-      self->egl_display = flutter_display;
++    // Flutter may have no EGL context on its GTK platform thread. The
++    // isolated mpv context only needs a display, not Flutter's context.
++    const gboolean have_flutter_context =
++        flutter_display != EGL_NO_DISPLAY && flutter_context != EGL_NO_CONTEXT;
++    EGLDisplay selected_display = flutter_display;
++    if (!have_flutter_context) {
++      selected_display = EGL_NO_DISPLAY;
++      GdkDisplay* gdk_display = gdk_display_get_default();
++      typedef EGLDisplay (*GetPlatformDisplayEXT)(EGLenum, void*, const EGLint*);
++      // libepoxy's eglGetPlatformDisplay (EGL 1.5) dispatch cannot resolve
++      // without a current display. Resolve the EXT entry point directly.
++      auto get_platform_display = reinterpret_cast<GetPlatformDisplayEXT>(
++          eglGetProcAddress("eglGetPlatformDisplayEXT"));
++      if (get_platform_display != NULL && gdk_display != NULL) {
++        if (GDK_IS_WAYLAND_DISPLAY(gdk_display)) {
++          selected_display = get_platform_display(
++              EGL_PLATFORM_WAYLAND_EXT,
++              gdk_wayland_display_get_wl_display(gdk_display), NULL);
++        } else if (GDK_IS_X11_DISPLAY(gdk_display)) {
++          selected_display = get_platform_display(
++              EGL_PLATFORM_X11_EXT,
++              gdk_x11_display_get_xdisplay(gdk_display), NULL);
++        }
++      }
++      if (selected_display == EGL_NO_DISPLAY ||
++          !eglInitialize(selected_display, NULL, NULL)) {
++        g_printerr("media_kit: VideoOutput: Native EGL initialization failed (0x%x).\n", eglGetError());
++        selected_display = EGL_NO_DISPLAY;
++      } else {
++        g_print("media_kit: VideoOutput: Native EGL display initialized.\n");
++      }
++    }
++
++    if (selected_display != EGL_NO_DISPLAY) {
++      self->egl_display = selected_display;
+       
+       // Bind OpenGL ES API (Flutter uses OpenGL ES on Linux)
+       eglBindAPI(EGL_OPENGL_ES_API);
+@@ -174,21 +207,32 @@
+       EGLConfig config = NULL;
+       EGLint config_id = 0;
+       
+-      if (eglQueryContext(self->egl_display, flutter_context, EGL_CONFIG_ID, &config_id)) {
+-        g_print("media_kit: VideoOutput: Flutter's EGL config ID: %d\n", config_id);
+-        
+-        // Get Flutter's exact config
++      if (have_flutter_context) {
++        // Retain the existing behavior when Flutter has a current EGL context.
++        if (eglQueryContext(self->egl_display, flutter_context, EGL_CONFIG_ID, &config_id)) {
++          EGLint num_configs = 0;
++          EGLint config_attribs[] = {EGL_CONFIG_ID, config_id, EGL_NONE};
++          if (!eglChooseConfig(self->egl_display, config_attribs, &config, 1,
++                               &num_configs) || num_configs == 0) {
++            config = NULL;
++          }
++        }
++      } else {
++        // There is no Flutter context to query on the platform thread.
+         EGLint num_configs = 0;
+-        EGLint config_attribs[] = { EGL_CONFIG_ID, config_id, EGL_NONE };
+-        
+-        if (eglChooseConfig(self->egl_display, config_attribs, &config, 1, &num_configs) && num_configs > 0) {
+-          g_print("media_kit: VideoOutput: Using Flutter's EGL config.\n");
+-        } else {
+-          g_printerr("media_kit: VideoOutput: Failed to get Flutter's EGL config by ID.\n");
++        EGLint config_attribs[] = {
++            EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
++            EGL_RED_SIZE, 8,
++            EGL_GREEN_SIZE, 8,
++            EGL_BLUE_SIZE, 8,
++            EGL_ALPHA_SIZE, 8,
++            EGL_NONE,
++        };
++        if (!eglChooseConfig(self->egl_display, config_attribs, &config, 1,
++                             &num_configs) || num_configs == 0) {
++          g_printerr("media_kit: VideoOutput: Native EGL config selection failed (0x%x).\n", eglGetError());
+           config = NULL;
+         }
+-      } else {
+-        g_printerr("media_kit: VideoOutput: Failed to query Flutter's EGL config ID.\n");
+       }
+       
+       if (config != NULL) {        
+@@ -271,8 +315,14 @@
+               g_printerr("media_kit: VideoOutput: Failed to register texture.\n");
+             }
+             
+-            // Restore Flutter's context
+-            eglMakeCurrent(flutter_display, flutter_draw_surface, flutter_read_surface, flutter_context);
++            // The platform thread may never have had a Flutter EGL context.
++            if (have_flutter_context) {
++              eglMakeCurrent(flutter_display, flutter_draw_surface,
++                             flutter_read_surface, flutter_context);
++            } else {
++              eglMakeCurrent(self->egl_display, EGL_NO_SURFACE, EGL_NO_SURFACE,
++                             EGL_NO_CONTEXT);
++            }
+           } else {
+             g_printerr("media_kit: VideoOutput: Failed to make isolated EGL context current. Error: 0x%x\n", eglGetError());
+           }
