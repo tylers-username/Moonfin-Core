@@ -1,0 +1,79 @@
+name: Repackage compiled Moonfin EGL test
+
+# Reuses the known successful 2.6.0 Linux compile; avoids installing Flutter
+# or recompiling the patch for changes to library packaging alone.
+on:
+  push:
+    branches:
+      - fix/linux-egl-renderer-2.6.0
+    paths:
+      - .github/workflows/linux-egl-repackage.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download compiled Moonfin 2.6 EGL bundle
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 37793924138
+          repository: tylers-username/Moonfin-Core
+          github-token: ${{ github.token }}
+          name: moonfin-2.6-egl-linux-x86_64
+
+      - name: Restore native bundle
+        run: |
+          set -euo pipefail
+          mkdir -p build/linux/x64/release/bundle
+          tar -xzf Moonfin-2.6.0-linux-egl-test-x86_64.tar.gz -C build/linux/x64/release/bundle
+          test -x build/linux/x64/release/bundle/moonfin
+
+      - name: Install runtime libraries for packaging (no Flutter)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libmpv2 libsecret-1-0 libsqlite3-0 libwebkit2gtk-4.1-0 \
+            libharfbuzz-icu0 binutils patchelf
+
+      - name: Repackage runtime libraries
+        run: |
+          set -euo pipefail
+          source ./build-linux.sh
+          BUILD_DIR="$(resolve_build_dir)"
+          # libdartjni.so is a Java-only Dart native asset. On Linux it would
+          # force shipping a complete JVM despite no desktop Java integration.
+          # Keep the test bundle restricted to Linux video playback components.
+          test -f "$BUILD_DIR/lib/libdartjni.so"
+          rm "$BUILD_DIR/lib/libdartjni.so"
+          # The tarball builder continues after its internal dependency
+          # verification failure. Gate the dependency check independently.
+          if ! inject_linux_runtime_libs "$BUILD_DIR"; then
+            echo "::group::Libraries directly requiring libjvm.so"
+            find "$BUILD_DIR" -type f -print0 |
+              while IFS= read -r -d '' f; do
+                if readelf -d "$f" 2>/dev/null | grep -Fq 'Shared library: [libjvm.so]'; then
+                  echo "REQUIRES_JVM: $f"
+                  ldd "$f" 2>&1 | grep -E 'jvm|not found' || true
+                fi
+              done
+            echo "::endgroup::"
+            exit 1
+          fi
+          build_tarball
+          cd "$GITHUB_WORKSPACE"
+          tar -tzf Moonfin_Linux_v2.6.0.tar.gz |
+            grep -E '(libmpv[.]so[.]2|moonfin-bin)' | head -10
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moonfin-2.6-egl-packaged-x86_64
+          path: Moonfin_Linux_v2.6.0.tar.gz
+          if-no-files-found: error
+          retention-days: 14

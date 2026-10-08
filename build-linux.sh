@@ -1413,4 +1413,8 @@ USAGE
   echo "======================================"
 }
 
-main "$@"
+# Allow CI to reuse the tarball packager for an already-built (patched)
+# Flutter bundle without triggering a second, unpatched Flutter build.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
