@@ -71,3 +71,15 @@ Close patched Moonfin and launch the existing `~/Applications/Moonfin.AppImage`.
 - Corrective change: after running the reversible patched build, reuse the project's existing `build_tarball` packager on the **already-built** Flutter output. This bundles libmpv, supporting runtime libraries and the `moonfin` launcher with `LD_LIBRARY_PATH`. Critically, this must **not** run a second unpatched Flutter build.
 - The remote artifact ZIP contains `Moonfin_Linux_v2.6.0.tar.gz`; this tarball contains a top-level `moonfin-2.6.0/` directory with the launcher `moonfin` and the executable `moonfin-bin`. Extract this updated artifact to a **new** directory for comparison; keep the AppImage and the previous extracted test directory as-is until verification.
 - New workflow run: [37797098322](https://github.com/tylers-username/Moonfin-Core/actions/runs/37797098322). Its completion status and the runtime result must be verified independently; compilation success alone is insufficient.
+
+## Packaging failure and validated correction — 2026-10-08
+
+- Full build run [37797098322](https://github.com/tylers-username/Moonfin-Core/actions/runs/37797098322): patched Flutter Linux binary **compiled successfully**, but the existing Moonfin tarball dependency verifier rejected `libjvm.so` after bundling 199 libraries.
+- Dependency inspection in packaging-only run [37798984428](https://github.com/tylers-username/Moonfin-Core/actions/runs/37798984428) identified the direct dependency: **`libdartjni.so`** (Dart's Java JNI native bridge). This was included as a Linux native asset but is not used by the video-rendering test. It is not a direct dependency of the Moonfin executable.
+- A test-package-only exclusion (`rm -f "$BUILD_DIR/lib/libdartjni.so"`) removes the JVM requirement without installing Java on the game center. The scope of the exclusion is intentionally limited to this experimental Linux artifact; Java-specific features, if any, have not been runtime-tested.
+- The tarball packager's `build_tarball` function can continue even after its `verify_host_dependencies` returns an error. The experimental workflows now invoke `inject_linux_runtime_libs` before packaging as a hard gate, then call the regular packager.
+- **Successfully packaged artifact:** [run 37799239500](https://github.com/tylers-username/Moonfin-Core/actions/runs/37799239500), artifact `moonfin-2.6-egl-packaged-x86_64`; ~190 MB zip with `Moonfin_Linux_v2.6.0.tar.gz` inside. Includes bundled `libmpv.so.2`. Packaging verification passed; playback and EGL initialization on Xubuntu remain unverified.
+
+### Testing corrected package
+
+After downloading the **packaged** artifact ZIP (do not use the first raw bundle): extract `Moonfin_Linux_v2.6.0.tar.gz`, preserving the existing `Moonfin.AppImage`, then start the *`moonfin` launcher script* (not `moonfin-bin`). The archive's top-level directory is `moonfin-2.6.0/`. Expected next check: whether software rendering is replaced by hardware rendering on the Radeon Pro 555 at 120 Hz and whether any X11/GLX crash appears.
