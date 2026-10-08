@@ -47,9 +47,11 @@ jobs:
           set -euo pipefail
           source ./build-linux.sh
           BUILD_DIR="$(resolve_build_dir)"
-          if ! build_tarball; then
+          # The tarball builder continues after its internal dependency
+          # verification failure. Gate the dependency check independently.
+          if ! inject_linux_runtime_libs "$BUILD_DIR"; then
             echo "::group::Libraries directly requiring libjvm.so"
-            find "$GITHUB_WORKSPACE/build/linux/temp/tarball" -type f -print0 |
+            find "$BUILD_DIR" -type f -print0 |
               while IFS= read -r -d '' f; do
                 if readelf -d "$f" 2>/dev/null | grep -Fq 'Shared library: [libjvm.so]'; then
                   echo "REQUIRES_JVM: $f"
@@ -59,6 +61,8 @@ jobs:
             echo "::endgroup::"
             exit 1
           fi
+          build_tarball
+          cd "$GITHUB_WORKSPACE"
           tar -tzf Moonfin_Linux_v2.6.0.tar.gz |
             grep -E '(libmpv[.]so[.]2|moonfin-bin)' | head -10
 
