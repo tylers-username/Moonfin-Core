@@ -66,10 +66,9 @@ jobs:
           # This is diagnostic only: do not silence the dependency gate.
           if ! build_tarball; then
             echo "::group::Libraries with a direct DT_NEEDED dependency on libjvm.so"
-            find "$GITHUB_WORKSPACE/build/linux/temp/tarball" -type f \\
-              \( -name '*.so*' -o -name 'moonfin*' \) -print0 |
+            find "$GITHUB_WORKSPACE/build/linux/temp/tarball" -type f -print0 |
               while IFS= read -r -d '' f; do
-                if readelf -d "$f" 2>/dev/null | grep -q 'Shared library: \\[libjvm.so\\]'; then
+                if readelf -d "$f" 2>/dev/null | grep -Fq 'Shared library: [libjvm.so]'; then
                   echo "REQUIRES_JVM: $f"
                   ldd "$f" 2>&1 | grep -E 'jvm|not found' || true
                 fi
